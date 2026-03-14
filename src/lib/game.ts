@@ -30,6 +30,16 @@ export function getTodayAngle(): number {
   return ANGLES[seededIndex(day, ANGLES.length)];
 }
 
+/** Random rotation offset for the target angle display (0–359°) */
+export function getTodayRotation(): number {
+  const day = getDayNumber();
+  // Use a different seed multiplier so it's independent from angle selection
+  let h = (day * 1597334677) >>> 0;
+  h = ((h >>> 16) ^ h) * 0x45d9f3b;
+  h = (h >>> 16) ^ h;
+  return Math.abs(h) % 360;
+}
+
 export function computeScore(guess: number, answer: number): number {
   let diff = Math.abs(guess - answer);
   if (diff > 180) diff = 360 - diff;

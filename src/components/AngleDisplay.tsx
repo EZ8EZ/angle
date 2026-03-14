@@ -4,6 +4,8 @@ import React from 'react';
 
 interface Props {
   angle: number;
+  rotation: number; // random offset so the angle isn't always from 12 o'clock
+  visible: boolean; // false = hidden after flash timer expires
 }
 
 const SIZE = 200;
@@ -16,34 +18,39 @@ function polarToXY(cx: number, cy: number, r: number, angleDeg: number) {
   return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
 }
 
-function arcPath(cx: number, cy: number, r: number, startDeg: number, endDeg: number): string {
-  let sweep = endDeg - startDeg;
-  if (sweep < 0) sweep += 360;
-  const largeArc = sweep > 180 ? 1 : 0;
-  const start = polarToXY(cx, cy, r, startDeg);
-  const end = polarToXY(cx, cy, r, endDeg);
-  return `M ${start.x} ${start.y} A ${r} ${r} 0 ${largeArc} 1 ${end.x} ${end.y}`;
-}
-
 /**
  * Shows the target angle as a clean geometric figure:
  * two lines radiating from center with a small arc between them.
- * No numbers, no markings — pure visual.
+ * Rotated by a random offset so it's not always measured from 12 o'clock.
+ * Flashes briefly then hides.
  */
-export default function AngleDisplay({ angle }: Props) {
-  const refEnd = polarToXY(CX, CY, LINE_LEN, 0);
-  const angleEnd = polarToXY(CX, CY, LINE_LEN, angle);
+export default function AngleDisplay({ angle, rotation, visible }: Props) {
+  const startDeg = rotation;
+  const endDeg = rotation + angle;
+  const refEnd = polarToXY(CX, CY, LINE_LEN, startDeg);
+  const angleEnd = polarToXY(CX, CY, LINE_LEN, endDeg);
   const arcR = 28;
+
+  // Arc fill path
+  const arcStart = polarToXY(CX, CY, arcR, startDeg);
+  const arcEnd = polarToXY(CX, CY, arcR, endDeg);
+  const largeArc = angle > 180 ? 1 : 0;
 
   return (
     <svg
       viewBox={`0 0 ${SIZE} ${SIZE}`}
       width="100%"
-      style={{ maxWidth: 180, display: 'block', margin: '0 auto' }}
+      style={{
+        maxWidth: 180,
+        display: 'block',
+        margin: '0 auto',
+        opacity: visible ? 1 : 0,
+        transition: 'opacity 0.3s ease',
+      }}
     >
-      {/* Subtle arc between the two lines */}
+      {/* Arc stroke */}
       <path
-        d={arcPath(CX, CY, arcR, 0, angle)}
+        d={`M ${arcStart.x} ${arcStart.y} A ${arcR} ${arcR} 0 ${largeArc} 1 ${arcEnd.x} ${arcEnd.y}`}
         fill="none"
         stroke="#1a1a1a"
         strokeWidth="1.5"
@@ -51,34 +58,24 @@ export default function AngleDisplay({ angle }: Props) {
       />
 
       {/* Arc fill */}
-      {angle > 0 && (
-        <path
-          d={`M ${CX} ${CY} L ${polarToXY(CX, CY, arcR, 0).x} ${polarToXY(CX, CY, arcR, 0).y} A ${arcR} ${arcR} 0 ${angle > 180 ? 1 : 0} 1 ${polarToXY(CX, CY, arcR, angle).x} ${polarToXY(CX, CY, arcR, angle).y} Z`}
-          fill="#1a1a1a"
-          opacity={0.06}
-        />
-      )}
-
-      {/* Reference line (0° — straight up) */}
-      <line
-        x1={CX}
-        y1={CY}
-        x2={refEnd.x}
-        y2={refEnd.y}
-        stroke="#1a1a1a"
-        strokeWidth="2"
-        strokeLinecap="round"
+      <path
+        d={`M ${CX} ${CY} L ${arcStart.x} ${arcStart.y} A ${arcR} ${arcR} 0 ${largeArc} 1 ${arcEnd.x} ${arcEnd.y} Z`}
+        fill="#1a1a1a"
+        opacity={0.06}
       />
 
-      {/* Target angle line */}
+      {/* First line */}
       <line
-        x1={CX}
-        y1={CY}
-        x2={angleEnd.x}
-        y2={angleEnd.y}
-        stroke="#1a1a1a"
-        strokeWidth="2"
-        strokeLinecap="round"
+        x1={CX} y1={CY}
+        x2={refEnd.x} y2={refEnd.y}
+        stroke="#1a1a1a" strokeWidth="2" strokeLinecap="round"
+      />
+
+      {/* Second line */}
+      <line
+        x1={CX} y1={CY}
+        x2={angleEnd.x} y2={angleEnd.y}
+        stroke="#1a1a1a" strokeWidth="2" strokeLinecap="round"
       />
 
       {/* Center dot */}

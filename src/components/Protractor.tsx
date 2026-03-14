@@ -13,9 +13,6 @@ const SIZE = 320;
 const CX = SIZE / 2;
 const CY = SIZE / 2;
 const R = 130;
-const TICK_OUTER = R + 2;
-const TICK_MINOR = 8;
-const TICK_MAJOR = 14;
 
 function polarToXY(cx: number, cy: number, r: number, angleDeg: number) {
   const rad = ((angleDeg - 90) * Math.PI) / 180;
@@ -73,27 +70,6 @@ export default function Protractor({ angle, submitted, answerAngle, onAngleChang
     dragging.current = false;
   }, []);
 
-  // Tick marks — no labels, pure perception
-  const ticks: React.ReactNode[] = [];
-  for (let d = 0; d < 360; d += 5) {
-    const isMajor = d % 30 === 0;
-    const len = isMajor ? TICK_MAJOR : TICK_MINOR;
-    const outer = polarToXY(CX, CY, TICK_OUTER, d);
-    const inner = polarToXY(CX, CY, TICK_OUTER - len, d);
-    ticks.push(
-      <line
-        key={`tick-${d}`}
-        x1={outer.x}
-        y1={outer.y}
-        x2={inner.x}
-        y2={inner.y}
-        stroke="#1a1a1a"
-        strokeWidth={isMajor ? 1.5 : 0.75}
-        strokeLinecap="round"
-      />
-    );
-  }
-
   const guessEnd = polarToXY(CX, CY, R, angle);
   const refEnd = polarToXY(CX, CY, R, 0);
   const guessColor = submitted ? '#c8a050' : '#3366cc';
@@ -111,9 +87,9 @@ export default function Protractor({ angle, submitted, answerAngle, onAngleChang
       onPointerLeave={handlePointerUp}
     >
       {/* White backing circle — clips out dot grid */}
-      <circle cx={CX} cy={CY} r={R + 18} fill="#faf8f4" />
-      {/* Inner circle */}
-      <circle cx={CX} cy={CY} r={R} fill="#ffffff" stroke="#e8e4de" strokeWidth="1" />
+      <circle cx={CX} cy={CY} r={R + 8} fill="#faf8f4" />
+      {/* Clean circle — no tick marks, no labels */}
+      <circle cx={CX} cy={CY} r={R} fill="#ffffff" stroke="#e8e4de" strokeWidth="1.5" />
 
       {/* Guess arc fill */}
       {angle > 0 && (
@@ -124,9 +100,6 @@ export default function Protractor({ angle, submitted, answerAngle, onAngleChang
       {submitted && answerAngle !== undefined && answerAngle > 0 && (
         <path d={arcPath(CX, CY, R, 0, answerAngle)} fill="#3ca064" opacity={0.11} />
       )}
-
-      {/* Ticks */}
-      {ticks}
 
       {/* Reference line (0° dashed) */}
       <line

@@ -8,6 +8,7 @@ import StatsModal from '@/components/StatsModal';
 import {
   getDayNumber,
   getTodayAngle,
+  getTodayRotation,
   computeScore,
   getAngularDifference,
   loadGameState,
@@ -17,6 +18,8 @@ import {
   formatDate,
   type Stats,
 } from '@/lib/game';
+
+const FLASH_DURATION = 3500; // ms the angle is visible
 
 export default function Home() {
   const [guessAngle, setGuessAngle] = useState(0);
@@ -35,10 +38,14 @@ export default function Home() {
   const [copied, setCopied] = useState(false);
   const [hasInteracted, setHasInteracted] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [angleVisible, setAngleVisible] = useState(true);
+  const [timeLeft, setTimeLeft] = useState(FLASH_DURATION);
 
   const dayNumber = getDayNumber();
   const targetAngle = getTodayAngle();
+  const rotation = getTodayRotation();
   const animFrameRef = useRef<number>(0);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -49,8 +56,27 @@ export default function Home() {
       setSubmitted(true);
       setDisplayScore(saved.score);
       setHasInteracted(true);
+      setAngleVisible(true); // show angle in results
+      setTimeLeft(0);
+      return;
     }
     setStats(loadStats());
+
+    // Flash timer — hide the angle after FLASH_DURATION
+    const startTime = Date.now();
+    timerRef.current = setInterval(() => {
+      const elapsed = Date.now() - startTime;
+      const remaining = Math.max(0, FLASH_DURATION - elapsed);
+      setTimeLeft(remaining);
+      if (remaining <= 0) {
+        setAngleVisible(false);
+        if (timerRef.current) clearInterval(timerRef.current);
+      }
+    }, 50);
+
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
   }, []);
 
   const handleAngleChange = useCallback((newAngle: number) => {
@@ -63,6 +89,7 @@ export default function Home() {
     const s = computeScore(guessAngle, targetAngle);
     setScore(s);
     setSubmitted(true);
+    setAngleVisible(true); // reveal angle again on submit
 
     saveGameState({ dayNumber, guess: guessAngle, score: s, answer: targetAngle });
     const newStats = recordScore(s);
@@ -99,6 +126,7 @@ export default function Home() {
   }, [guessAngle, targetAngle, dayNumber, score]);
 
   const diff = getAngularDifference(guessAngle, targetAngle);
+  const timerSeconds = Math.ceil(timeLeft / 1000);
 
   if (!mounted) {
     return (
@@ -155,9 +183,24 @@ export default function Home() {
         </p>
       </div>
 
-      {/* Target angle visual — the "swatch" */}
-      <div style={{ marginBottom: 8 }}>
-        <AngleDisplay angle={targetAngle} />
+      {/* Target angle visual with flash timer */}
+      <div style={{ marginBottom: 8, position: 'relative' }}>
+        <AngleDisplay angle={targetAngle} rotation={rotation} visible={angleVisible} />
+        {/* Timer indicator */}
+        {!submitted && timeLeft > 0 && (
+          <div style={{ textAlign: 'center', marginTop: 4 }}>
+            <span className="small-caps" style={{ color: '#bbb' }}>
+              {timerSeconds}s
+            </span>
+          </div>
+        )}
+        {!submitted && !angleVisible && (
+          <div style={{ textAlign: 'center', marginTop: 4 }}>
+            <span className="small-caps" style={{ color: '#bbb' }}>
+              From memory
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Protractor for guessing */}
