@@ -4,69 +4,84 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import AngleDisplay from '@/components/AngleDisplay';
 import Protractor from '@/components/Protractor';
+import RoundHistory from '@/components/RoundHistory';
 import StatsModal from '@/components/StatsModal';
 import {
   getDayNumber,
-  getTodayAngle,
-  getTodayRotation,
+  getNumRounds,
+  getRoundAngle,
+  getRoundRotation,
   computeScore,
   getAngularDifference,
   loadGameState,
   saveGameState,
   loadStats,
-  recordScore,
+  recordDayScore,
   formatDate,
+  type GameState,
   type Stats,
+  emptyGameState,
 } from '@/lib/game';
 
-const FLASH_DURATION = 3500; // ms the angle is visible
+const FLASH_DURATION = 3500;
 
 export default function Home() {
+  const [game, setGame] = useState<GameState>(emptyGameState());
   const [guessAngle, setGuessAngle] = useState(0);
-  const [submitted, setSubmitted] = useState(false);
-  const [score, setScore] = useState<number | null>(null);
-  const [displayScore, setDisplayScore] = useState(0);
-  const [statsOpen, setStatsOpen] = useState(false);
-  const [stats, setStats] = useState<Stats>({
-    gamesPlayed: 0,
-    streak: 0,
-    lastDay: 0,
-    bestScore: 0,
-    totalScore: 0,
-    scores: [],
-  });
-  const [copied, setCopied] = useState(false);
   const [hasInteracted, setHasInteracted] = useState(false);
   const [mounted, setMounted] = useState(false);
+
+  // Per-round reveal state
+  const [roundRevealed, setRoundRevealed] = useState(false);
+  const [displayRoundScore, setDisplayRoundScore] = useState(0);
+
+  // Flash timer
   const [angleVisible, setAngleVisible] = useState(true);
   const [timeLeft, setTimeLeft] = useState(FLASH_DURATION);
 
+  // Final results
+  const [displayTotalScore, setDisplayTotalScore] = useState(0);
+
+  // Stats
+  const [statsOpen, setStatsOpen] = useState(false);
+  const [stats, setStats] = useState<Stats>({
+    gamesPlayed: 0, streak: 0, lastDay: 0, bestScore: 0, totalScore: 0, scores: [],
+  });
+  const [copied, setCopied] = useState(false);
+
   const dayNumber = getDayNumber();
-  const targetAngle = getTodayAngle();
-  const rotation = getTodayRotation();
-  const animFrameRef = useRef<number>(0);
+  const numRounds = getNumRounds();
+  const animRef = useRef<number>(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  const currentRound = game.currentRound;
+  const isComplete = game.complete;
+  const targetAngle = !isComplete ? getRoundAngle(currentRound) : 0;
+  const rotation = !isComplete ? getRoundRotation(currentRound) : 0;
+
+  // Load saved state on mount
   useEffect(() => {
     setMounted(true);
     const saved = loadGameState();
-    if (saved && saved.guess !== null && saved.score !== null && saved.answer !== null) {
-      setGuessAngle(saved.guess);
-      setScore(saved.score);
-      setSubmitted(true);
-      setDisplayScore(saved.score);
-      setHasInteracted(true);
-      setAngleVisible(true); // show angle in results
-      setTimeLeft(0);
-      return;
-    }
+    setGame(saved);
     setStats(loadStats());
 
-    // Flash timer — hide the angle after FLASH_DURATION
+    if (saved.complete) {
+      const total = saved.rounds.reduce((s, r) => s + r.score, 0);
+      setDisplayTotalScore(total);
+    }
+  }, []);
+
+  // Flash timer — reset on each new round
+  useEffect(() => {
+    if (!mounted || isComplete || roundRevealed) return;
+
+    setAngleVisible(true);
+    setTimeLeft(FLASH_DURATION);
+
     const startTime = Date.now();
     timerRef.current = setInterval(() => {
-      const elapsed = Date.now() - startTime;
-      const remaining = Math.max(0, FLASH_DURATION - elapsed);
+      const remaining = Math.max(0, FLASH_DURATION - (Date.now() - startTime));
       setTimeLeft(remaining);
       if (remaining <= 0) {
         setAngleVisible(false);
@@ -77,40 +92,79 @@ export default function Home() {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, []);
+  }, [mounted, currentRound, isComplete, roundRevealed]);
 
-  const handleAngleChange = useCallback((newAngle: number) => {
-    setGuessAngle(newAngle);
+  const handleAngleChange = useCallback((a: number) => {
+    setGuessAngle(a);
     if (!hasInteracted) setHasInteracted(true);
   }, [hasInteracted]);
 
+  // Submit a single round
   const handleSubmit = useCallback(() => {
-    if (submitted) return;
-    const s = computeScore(guessAngle, targetAngle);
-    setScore(s);
-    setSubmitted(true);
-    setAngleVisible(true); // reveal angle again on submit
+    if (roundRevealed || isComplete) return;
+    const answer = getRoundAngle(currentRound);
+    const rot = getRoundRotation(currentRound);
+    const score = computeScore(guessAngle, answer);
 
-    saveGameState({ dayNumber, guess: guessAngle, score: s, answer: targetAngle });
-    const newStats = recordScore(s);
-    setStats(newStats);
+    setRoundRevealed(true);
+    setAngleVisible(true); // show angle again
 
+    // Animate round score
     const start = performance.now();
-    const duration = 500;
     const animate = (now: number) => {
-      const elapsed = now - start;
-      const progress = Math.min(elapsed / duration, 1);
-      setDisplayScore(Math.round(s * progress));
-      if (progress < 1) {
-        animFrameRef.current = requestAnimationFrame(animate);
-      }
+      const p = Math.min((now - start) / 400, 1);
+      setDisplayRoundScore(Math.round(score * p));
+      if (p < 1) animRef.current = requestAnimationFrame(animate);
     };
-    animFrameRef.current = requestAnimationFrame(animate);
-  }, [guessAngle, submitted, dayNumber, targetAngle]);
+    animRef.current = requestAnimationFrame(animate);
+
+    // Save round result
+    const newRounds = [...game.rounds, { guess: guessAngle, answer, rotation: rot, score }];
+    const nextRound = currentRound + 1;
+    const complete = nextRound >= numRounds;
+
+    const newGame: GameState = {
+      dayNumber,
+      currentRound: nextRound,
+      rounds: newRounds,
+      complete,
+    };
+    setGame(newGame);
+    saveGameState(newGame);
+
+    if (complete) {
+      const total = newRounds.reduce((s, r) => s + r.score, 0);
+      const newStats = recordDayScore(total);
+      setStats(newStats);
+
+      // Animate total after a short delay
+      setTimeout(() => {
+        const s2 = performance.now();
+        const animTotal = (now: number) => {
+          const p = Math.min((now - s2) / 600, 1);
+          setDisplayTotalScore(Math.round(total * p));
+          if (p < 1) requestAnimationFrame(animTotal);
+        };
+        requestAnimationFrame(animTotal);
+      }, 500);
+    }
+  }, [guessAngle, currentRound, game, roundRevealed, isComplete, dayNumber, numRounds]);
+
+  // Advance to next round
+  const handleNextRound = useCallback(() => {
+    setRoundRevealed(false);
+    setGuessAngle(0);
+    setHasInteracted(false);
+    setDisplayRoundScore(0);
+  }, []);
 
   const handleShare = useCallback(async () => {
-    const diff = getAngularDifference(guessAngle, targetAngle);
-    const text = `ANGLE No. ${dayNumber} — ${formatDate()}\n${score}/100 — off by ${diff}°\nhttps://angle-game.vercel.app`;
+    const total = game.rounds.reduce((s, r) => s + r.score, 0);
+    const lines = game.rounds.map((r, i) => {
+      const diff = getAngularDifference(r.guess, r.answer);
+      return `R${i + 1}: ${r.score}/100 (off by ${diff}°)`;
+    });
+    const text = `ANGLE No. ${dayNumber} — ${formatDate()}\n${total}/${numRounds * 100}\n${lines.join('\n')}\nhttps://angle-game.vercel.app`;
     try {
       await navigator.clipboard.writeText(text);
     } catch {
@@ -123,9 +177,8 @@ export default function Home() {
     }
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
-  }, [guessAngle, targetAngle, dayNumber, score]);
+  }, [game.rounds, dayNumber, numRounds]);
 
-  const diff = getAngularDifference(guessAngle, targetAngle);
   const timerSeconds = Math.ceil(timeLeft / 1000);
 
   if (!mounted) {
@@ -139,27 +192,14 @@ export default function Home() {
   }
 
   return (
-    <main
-      style={{
-        maxWidth: 400,
-        margin: '0 auto',
-        padding: '48px 20px 64px',
-        fontFamily: 'Georgia, serif',
-      }}
-    >
+    <main style={{ maxWidth: 400, margin: '0 auto', padding: '48px 20px 64px', fontFamily: 'Georgia, serif' }}>
       {/* Stats icon */}
       <button
         onClick={() => setStatsOpen(true)}
         aria-label="Statistics"
         style={{
-          position: 'fixed',
-          top: 16,
-          right: 16,
-          background: 'none',
-          border: 'none',
-          cursor: 'pointer',
-          padding: 6,
-          zIndex: 40,
+          position: 'fixed', top: 16, right: 16, background: 'none',
+          border: 'none', cursor: 'pointer', padding: 6, zIndex: 40,
         }}
       >
         <svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="#1a1a1a" strokeWidth="1.5" strokeLinecap="round">
@@ -178,112 +218,148 @@ export default function Home() {
           Angle
         </h1>
         <hr style={{ border: 'none', borderTop: '1px solid #e8e4de', margin: '0 40px 12px' }} />
-        <p className="small-caps" style={{ margin: 0, color: '#999' }}>
-          How many degrees is this angle?
-        </p>
-      </div>
 
-      {/* Target angle visual with flash timer */}
-      <div style={{ marginBottom: 8, position: 'relative' }}>
-        <AngleDisplay angle={targetAngle} rotation={rotation} visible={angleVisible} />
-        {/* Timer indicator */}
-        {!submitted && timeLeft > 0 && (
-          <div style={{ textAlign: 'center', marginTop: 4 }}>
-            <span className="small-caps" style={{ color: '#bbb' }}>
-              {timerSeconds}s
-            </span>
-          </div>
-        )}
-        {!submitted && !angleVisible && (
-          <div style={{ textAlign: 'center', marginTop: 4 }}>
-            <span className="small-caps" style={{ color: '#bbb' }}>
-              From memory
-            </span>
-          </div>
+        {!isComplete && (
+          <p className="small-caps" style={{ margin: 0, color: '#999' }}>
+            Round {currentRound + 1} of {numRounds} — How many degrees?
+          </p>
         )}
       </div>
 
-      {/* Protractor for guessing */}
-      <div style={{ marginBottom: 16 }}>
-        <Protractor
-          angle={guessAngle}
-          submitted={submitted}
-          answerAngle={submitted ? targetAngle : undefined}
-          onAngleChange={handleAngleChange}
-        />
-      </div>
+      {/* ==================== ACTIVE ROUND ==================== */}
+      {!isComplete && !roundRevealed && (
+        <>
+          {/* Target angle visual with flash */}
+          <div style={{ marginBottom: 8, position: 'relative' }}>
+            <AngleDisplay angle={targetAngle} rotation={rotation} visible={angleVisible} />
+            <div style={{ textAlign: 'center', marginTop: 4 }}>
+              {timeLeft > 0 ? (
+                <span className="small-caps" style={{ color: '#bbb' }}>{timerSeconds}s</span>
+              ) : (
+                <span className="small-caps" style={{ color: '#bbb' }}>From memory</span>
+              )}
+            </div>
+          </div>
 
-      {/* Live readout */}
-      {!submitted && (
-        <div style={{ textAlign: 'center', marginBottom: 16 }}>
-          <span style={{ fontSize: 36, fontWeight: 'normal' }}>
-            {hasInteracted ? `${guessAngle}°` : '—'}
-          </span>
-        </div>
+          {/* Protractor */}
+          <div style={{ marginBottom: 16 }}>
+            <Protractor
+              angle={guessAngle}
+              submitted={false}
+              onAngleChange={handleAngleChange}
+            />
+          </div>
+
+          {/* Live readout */}
+          <div style={{ textAlign: 'center', marginBottom: 16 }}>
+            <span style={{ fontSize: 36, fontWeight: 'normal' }}>
+              {hasInteracted ? `${guessAngle}°` : '—'}
+            </span>
+          </div>
+
+          {/* Submit */}
+          <button className="submit-btn" onClick={handleSubmit} disabled={!hasInteracted}>
+            Submit
+          </button>
+        </>
       )}
 
-      {/* Submit button */}
-      {!submitted && (
-        <button
-          className="submit-btn"
-          onClick={handleSubmit}
-          disabled={!hasInteracted}
-        >
-          Submit
-        </button>
-      )}
-
-      {/* Results */}
-      <AnimatePresence>
-        {submitted && score !== null && (
+      {/* ==================== ROUND RESULT (between rounds) ==================== */}
+      {!isComplete && roundRevealed && (
+        <AnimatePresence>
           <motion.div
-            initial={{ opacity: 0, y: 24 }}
+            initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.4, ease: 'easeOut' }}
-            style={{ marginTop: 20 }}
+            transition={{ duration: 0.35 }}
           >
-            {/* Score */}
-            <div style={{ textAlign: 'center', marginBottom: 20 }}>
-              <div style={{ fontSize: 56, fontWeight: 'normal', lineHeight: 1 }}>
-                {displayScore}
-              </div>
-              <p className="small-caps" style={{ margin: '6px 0 0', color: '#888' }}>
-                Points
+            {/* Show both angles on protractor */}
+            <div style={{ marginBottom: 8 }}>
+              <AngleDisplay angle={targetAngle} rotation={rotation} visible={true} />
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <Protractor
+                angle={guessAngle}
+                submitted={true}
+                answerAngle={game.rounds[game.rounds.length - 1]?.answer}
+                onAngleChange={() => {}}
+              />
+            </div>
+
+            {/* Round score */}
+            <div style={{ textAlign: 'center', marginBottom: 16 }}>
+              <div style={{ fontSize: 48, lineHeight: 1 }}>{displayRoundScore}</div>
+              <p className="small-caps" style={{ margin: '4px 0 0', color: '#888' }}>
+                Round {game.rounds.length} of {numRounds}
               </p>
             </div>
 
-            {/* Three-column breakdown */}
+            {/* Breakdown */}
             <div
               style={{
                 display: 'flex',
                 borderTop: '1px solid #e8e4de',
                 borderBottom: '1px solid #e8e4de',
-                padding: '16px 0',
+                padding: '14px 0',
+                marginBottom: 16,
               }}
             >
               <div style={{ flex: 1, textAlign: 'center' }}>
-                <div style={{ fontSize: 24 }}>{guessAngle}°</div>
-                <p className="small-caps" style={{ margin: '4px 0 0', color: '#888' }}>Your Guess</p>
+                <div style={{ fontSize: 22 }}>{guessAngle}°</div>
+                <p className="small-caps" style={{ margin: '4px 0 0', color: '#888' }}>Guess</p>
               </div>
               <div style={{ width: 1, background: '#e8e4de' }} />
               <div style={{ flex: 1, textAlign: 'center' }}>
-                <div style={{ fontSize: 24, color: '#3ca064' }}>{targetAngle}°</div>
+                <div style={{ fontSize: 22, color: '#3ca064' }}>{game.rounds[game.rounds.length - 1]?.answer}°</div>
                 <p className="small-caps" style={{ margin: '4px 0 0', color: '#888' }}>Answer</p>
               </div>
               <div style={{ width: 1, background: '#e8e4de' }} />
               <div style={{ flex: 1, textAlign: 'center' }}>
-                <div style={{ fontSize: 24 }}>{diff}°</div>
+                <div style={{ fontSize: 22 }}>
+                  {getAngularDifference(guessAngle, game.rounds[game.rounds.length - 1]?.answer ?? 0)}°
+                </div>
                 <p className="small-caps" style={{ margin: '4px 0 0', color: '#888' }}>Off By</p>
               </div>
             </div>
 
-            {/* Share */}
-            <button className="share-btn" onClick={handleShare}>
-              {copied ? 'Copied!' : 'Share Result'}
+            <button className="submit-btn" onClick={handleNextRound}>
+              Next Round
             </button>
           </motion.div>
-        )}
-      </AnimatePresence>
+        </AnimatePresence>
+      )}
+
+      {/* ==================== FINAL RESULTS ==================== */}
+      {isComplete && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4 }}
+        >
+          {/* Total score */}
+          <div style={{ textAlign: 'center', marginBottom: 24 }}>
+            <div style={{ fontSize: 72, fontWeight: 'normal', lineHeight: 1 }}>
+              {displayTotalScore}
+              <span style={{ fontSize: 28, color: '#bbb' }}> /{numRounds * 100}</span>
+            </div>
+            <p className="small-caps" style={{ margin: '8px 0 0', color: '#888' }}>
+              Today&apos;s Score
+            </p>
+          </div>
+
+          {/* Share */}
+          <button className="submit-btn" onClick={handleShare} style={{ borderRadius: 12 }}>
+            {copied ? 'Copied!' : 'Share Results'}
+          </button>
+
+          {/* Round history */}
+          <div style={{ marginTop: 28 }}>
+            <p className="small-caps" style={{ textAlign: 'center', color: '#bbb', marginBottom: 12 }}>
+              Round History
+            </p>
+            <RoundHistory rounds={game.rounds} />
+          </div>
+        </motion.div>
+      )}
 
       {/* Stats modal */}
       <StatsModal open={statsOpen} onClose={() => setStatsOpen(false)} stats={stats} />

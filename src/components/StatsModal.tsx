@@ -10,15 +10,16 @@ interface Props {
   stats: Stats;
 }
 
-const BUCKETS = ['0–20', '21–40', '41–60', '61–80', '81–100'];
+// Buckets for total daily score (out of 300)
+const BUCKETS = ['0–60', '61–120', '121–180', '181–240', '241–300'];
 
 function bucketize(scores: number[]): number[] {
   const counts = [0, 0, 0, 0, 0];
   for (const s of scores) {
-    if (s <= 20) counts[0]++;
-    else if (s <= 40) counts[1]++;
-    else if (s <= 60) counts[2]++;
-    else if (s <= 80) counts[3]++;
+    if (s <= 60) counts[0]++;
+    else if (s <= 120) counts[1]++;
+    else if (s <= 180) counts[2]++;
+    else if (s <= 240) counts[3]++;
     else counts[4]++;
   }
   return counts;

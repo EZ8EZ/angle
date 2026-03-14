@@ -1,6 +1,8 @@
 // Launch date — Day 1
 const LAUNCH_DATE = new Date('2025-03-14');
 
+const NUM_ROUNDS = 3;
+
 const ANGLES = [
   23, 37, 52, 67, 78, 103, 118, 141, 156, 197,
   214, 233, 248, 262, 289, 307, 322, 344,
@@ -12,32 +14,35 @@ function dateToDay(date: Date): number {
   return Math.floor((d.getTime() - launch.getTime()) / 86400000) + 1;
 }
 
-/** Simple seeded hash for consistent daily pick */
-function seededIndex(dayNumber: number, len: number): number {
-  let h = dayNumber * 2654435761;
+/** Seeded hash — different salt per round */
+function seededHash(seed: number): number {
+  let h = (seed * 2654435761) >>> 0;
   h = ((h >>> 16) ^ h) * 0x45d9f3b;
   h = ((h >>> 16) ^ h) * 0x45d9f3b;
   h = (h >>> 16) ^ h;
-  return Math.abs(h) % len;
+  return h >>> 0;
 }
 
 export function getDayNumber(): number {
   return dateToDay(new Date());
 }
 
-export function getTodayAngle(): number {
-  const day = getDayNumber();
-  return ANGLES[seededIndex(day, ANGLES.length)];
+export function getNumRounds(): number {
+  return NUM_ROUNDS;
 }
 
-/** Random rotation offset for the target angle display (0–359°) */
-export function getTodayRotation(): number {
+/** Get the target angle for a specific round (0-indexed) */
+export function getRoundAngle(round: number): number {
   const day = getDayNumber();
-  // Use a different seed multiplier so it's independent from angle selection
-  let h = (day * 1597334677) >>> 0;
-  h = ((h >>> 16) ^ h) * 0x45d9f3b;
-  h = (h >>> 16) ^ h;
-  return Math.abs(h) % 360;
+  const h = seededHash(day * 100 + round);
+  return ANGLES[h % ANGLES.length];
+}
+
+/** Get random rotation offset for a specific round */
+export function getRoundRotation(round: number): number {
+  const day = getDayNumber();
+  const h = seededHash(day * 100 + round + 50);
+  return h % 360;
 }
 
 export function computeScore(guess: number, answer: number): number {
@@ -55,34 +60,50 @@ export function getAngularDifference(guess: number, answer: number): number {
 
 // ---------- localStorage persistence ----------
 
-const STORAGE_KEY = 'angle-game';
+const STORAGE_KEY = 'angle-game-v2';
+
+export interface RoundResult {
+  guess: number;
+  answer: number;
+  rotation: number;
+  score: number;
+}
 
 export interface GameState {
   dayNumber: number;
-  guess: number | null;
-  score: number | null;
-  answer: number | null;
+  currentRound: number; // 0-indexed, equals NUM_ROUNDS when complete
+  rounds: RoundResult[];
+  complete: boolean;
 }
 
 export interface Stats {
   gamesPlayed: number;
   streak: number;
   lastDay: number;
-  bestScore: number;
+  bestScore: number; // best total (out of 300)
   totalScore: number;
-  scores: number[]; // last 100 scores for distribution
+  scores: number[]; // last 100 daily totals for distribution
 }
 
-export function loadGameState(): GameState | null {
-  if (typeof window === 'undefined') return null;
+export function emptyGameState(): GameState {
+  return {
+    dayNumber: getDayNumber(),
+    currentRound: 0,
+    rounds: [],
+    complete: false,
+  };
+}
+
+export function loadGameState(): GameState {
+  if (typeof window === 'undefined') return emptyGameState();
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
+    if (!raw) return emptyGameState();
     const state = JSON.parse(raw) as GameState;
     if (state.dayNumber === getDayNumber()) return state;
-    return null; // stale day
+    return emptyGameState();
   } catch {
-    return null;
+    return emptyGameState();
   }
 }
 
@@ -91,17 +112,25 @@ export function saveGameState(state: GameState): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
-const STATS_KEY = 'angle-stats';
+const STATS_KEY = 'angle-stats-v2';
+
+const DEFAULT_STATS: Stats = {
+  gamesPlayed: 0,
+  streak: 0,
+  lastDay: 0,
+  bestScore: 0,
+  totalScore: 0,
+  scores: [],
+};
 
 export function loadStats(): Stats {
-  if (typeof window === 'undefined')
-    return { gamesPlayed: 0, streak: 0, lastDay: 0, bestScore: 0, totalScore: 0, scores: [] };
+  if (typeof window === 'undefined') return { ...DEFAULT_STATS };
   try {
     const raw = localStorage.getItem(STATS_KEY);
-    if (!raw) return { gamesPlayed: 0, streak: 0, lastDay: 0, bestScore: 0, totalScore: 0, scores: [] };
+    if (!raw) return { ...DEFAULT_STATS };
     return JSON.parse(raw) as Stats;
   } catch {
-    return { gamesPlayed: 0, streak: 0, lastDay: 0, bestScore: 0, totalScore: 0, scores: [] };
+    return { ...DEFAULT_STATS };
   }
 }
 
@@ -110,17 +139,17 @@ export function saveStats(stats: Stats): void {
   localStorage.setItem(STATS_KEY, JSON.stringify(stats));
 }
 
-export function recordScore(score: number): Stats {
+export function recordDayScore(totalScore: number): Stats {
   const stats = loadStats();
   const day = getDayNumber();
-  if (stats.lastDay === day) return stats; // already recorded
+  if (stats.lastDay === day) return stats;
 
   stats.gamesPlayed += 1;
-  stats.totalScore += score;
-  if (score > stats.bestScore) stats.bestScore = score;
+  stats.totalScore += totalScore;
+  if (totalScore > stats.bestScore) stats.bestScore = totalScore;
   stats.streak = stats.lastDay === day - 1 ? stats.streak + 1 : 1;
   stats.lastDay = day;
-  stats.scores = [...stats.scores.slice(-99), score];
+  stats.scores = [...stats.scores.slice(-99), totalScore];
   saveStats(stats);
   return stats;
 }
