@@ -1,0 +1,93 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #faf8f4;
+  --ink: #1a1a1a;
+  --guess-blue: #3366cc;
+  --answer-green: #3ca064;
+  --locked-amber: #c8a050;
+  --border-light: #e8e4de;
+  --dial-white: #ffffff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--bg);
+  color: var(--ink);
+  font-family: Georgia, 'Times New Roman', serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  background-image:
+    radial-gradient(circle, #c8c4be 0.8px, transparent 0.8px);
+  background-size: 28px 28px;
+  background-position: 14px 14px;
+  min-height: 100vh;
+}
+
+.small-caps {
+  font-variant: normal;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  font-size: 0.7rem;
+}
+
+.submit-btn {
+  display: block;
+  width: 100%;
+  padding: 14px 0;
+  background: var(--ink);
+  color: #fff;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 1rem;
+  border: none;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.submit-btn:hover {
+  opacity: 0.85;
+}
+
+.submit-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.protractor-interactive {
+  cursor: none;
+}
+
+.protractor-interactive.submitted {
+  cursor: default;
+}
+
+.share-btn {
+  display: block;
+  width: 100%;
+  padding: 12px 0;
+  background: transparent;
+  color: var(--ink);
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 0.85rem;
+  border: 1.5px solid var(--ink);
+  cursor: pointer;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  transition: background 0.15s, color 0.15s;
+  margin-top: 16px;
+}
+
+.share-btn:hover {
+  background: var(--ink);
+  color: #fff;
+}
