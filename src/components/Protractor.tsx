@@ -12,20 +12,17 @@ interface Props {
 const SIZE = 320;
 const CX = SIZE / 2;
 const CY = SIZE / 2;
-const R = 130; // main circle radius
+const R = 130;
 const TICK_OUTER = R + 2;
 const TICK_MINOR = 8;
 const TICK_MAJOR = 14;
-const LABEL_R = R + 24;
 
 function polarToXY(cx: number, cy: number, r: number, angleDeg: number) {
-  // 0° = top (12 o'clock), clockwise
   const rad = ((angleDeg - 90) * Math.PI) / 180;
   return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
 }
 
 function arcPath(cx: number, cy: number, r: number, startDeg: number, endDeg: number): string {
-  // Draw arc from startDeg to endDeg clockwise
   let sweep = endDeg - startDeg;
   if (sweep < 0) sweep += 360;
   const largeArc = sweep > 180 ? 1 : 0;
@@ -47,7 +44,6 @@ export default function Protractor({ angle, submitted, answerAngle, onAngleChang
       const scaleY = SIZE / rect.height;
       const x = (clientX - rect.left) * scaleX - CX;
       const y = (clientY - rect.top) * scaleY - CY;
-      // atan2 gives angle from positive x axis; we want 0°=top, clockwise
       let deg = (Math.atan2(x, -y) * 180) / Math.PI;
       if (deg < 0) deg += 360;
       return Math.round(deg);
@@ -77,7 +73,7 @@ export default function Protractor({ angle, submitted, answerAngle, onAngleChang
     dragging.current = false;
   }, []);
 
-  // Tick marks
+  // Tick marks — no labels, pure perception
   const ticks: React.ReactNode[] = [];
   for (let d = 0; d < 360; d += 5) {
     const isMajor = d % 30 === 0;
@@ -98,29 +94,8 @@ export default function Protractor({ angle, submitted, answerAngle, onAngleChang
     );
   }
 
-  // Labels at every 30°
-  const labels: React.ReactNode[] = [];
-  for (let d = 0; d < 360; d += 30) {
-    const pos = polarToXY(CX, CY, LABEL_R, d);
-    labels.push(
-      <text
-        key={`lbl-${d}`}
-        x={pos.x}
-        y={pos.y}
-        textAnchor="middle"
-        dominantBaseline="central"
-        fill="#1a1a1a"
-        fontSize="10"
-        fontFamily="Georgia, serif"
-      >
-        {d}°
-      </text>
-    );
-  }
-
   const guessEnd = polarToXY(CX, CY, R, angle);
   const refEnd = polarToXY(CX, CY, R, 0);
-
   const guessColor = submitted ? '#c8a050' : '#3366cc';
 
   return (
@@ -136,9 +111,9 @@ export default function Protractor({ angle, submitted, answerAngle, onAngleChang
       onPointerLeave={handlePointerUp}
     >
       {/* White backing circle — clips out dot grid */}
-      <circle cx={CX} cy={CY} r={R + 30} fill="#faf8f4" />
+      <circle cx={CX} cy={CY} r={R + 18} fill="#faf8f4" />
       {/* Inner circle */}
-      <circle cx={CX} cy={CY} r={R} fill="var(--dial-white, #fff)" stroke="#e8e4de" strokeWidth="1" />
+      <circle cx={CX} cy={CY} r={R} fill="#ffffff" stroke="#e8e4de" strokeWidth="1" />
 
       {/* Guess arc fill */}
       {angle > 0 && (
@@ -152,8 +127,6 @@ export default function Protractor({ angle, submitted, answerAngle, onAngleChang
 
       {/* Ticks */}
       {ticks}
-      {/* Labels */}
-      {labels}
 
       {/* Reference line (0° dashed) */}
       <line
@@ -198,7 +171,7 @@ export default function Protractor({ angle, submitted, answerAngle, onAngleChang
       })()}
 
       {/* Center pivot */}
-      <circle cx={CX} cy={CY} r={5} fill={submitted ? '#c8a050' : '#3366cc'} />
+      <circle cx={CX} cy={CY} r={5} fill={guessColor} />
     </svg>
   );
 }

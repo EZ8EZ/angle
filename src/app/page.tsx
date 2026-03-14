@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import AngleDisplay from '@/components/AngleDisplay';
 import Protractor from '@/components/Protractor';
 import StatsModal from '@/components/StatsModal';
 import {
@@ -18,10 +19,9 @@ import {
 } from '@/lib/game';
 
 export default function Home() {
-  const [angle, setAngle] = useState(0);
+  const [guessAngle, setGuessAngle] = useState(0);
   const [submitted, setSubmitted] = useState(false);
   const [score, setScore] = useState<number | null>(null);
-  const [answerAngle, setAnswerAngle] = useState<number | null>(null);
   const [displayScore, setDisplayScore] = useState(0);
   const [statsOpen, setStatsOpen] = useState(false);
   const [stats, setStats] = useState<Stats>({
@@ -37,15 +37,15 @@ export default function Home() {
   const [mounted, setMounted] = useState(false);
 
   const dayNumber = getDayNumber();
+  const targetAngle = getTodayAngle();
   const animFrameRef = useRef<number>(0);
 
   useEffect(() => {
     setMounted(true);
     const saved = loadGameState();
     if (saved && saved.guess !== null && saved.score !== null && saved.answer !== null) {
-      setAngle(saved.guess);
+      setGuessAngle(saved.guess);
       setScore(saved.score);
-      setAnswerAngle(saved.answer);
       setSubmitted(true);
       setDisplayScore(saved.score);
       setHasInteracted(true);
@@ -54,19 +54,17 @@ export default function Home() {
   }, []);
 
   const handleAngleChange = useCallback((newAngle: number) => {
-    setAngle(newAngle);
+    setGuessAngle(newAngle);
     if (!hasInteracted) setHasInteracted(true);
   }, [hasInteracted]);
 
   const handleSubmit = useCallback(() => {
     if (submitted) return;
-    const answer = getTodayAngle();
-    const s = computeScore(angle, answer);
-    setAnswerAngle(answer);
+    const s = computeScore(guessAngle, targetAngle);
     setScore(s);
     setSubmitted(true);
 
-    saveGameState({ dayNumber, guess: angle, score: s, answer });
+    saveGameState({ dayNumber, guess: guessAngle, score: s, answer: targetAngle });
     const newStats = recordScore(s);
     setStats(newStats);
 
@@ -81,15 +79,13 @@ export default function Home() {
       }
     };
     animFrameRef.current = requestAnimationFrame(animate);
-  }, [angle, submitted, dayNumber]);
+  }, [guessAngle, submitted, dayNumber, targetAngle]);
 
   const handleShare = useCallback(async () => {
-    const diff = answerAngle !== null ? getAngularDifference(angle, answerAngle) : 0;
+    const diff = getAngularDifference(guessAngle, targetAngle);
     const text = `ANGLE No. ${dayNumber} — ${formatDate()}\n${score}/100 — off by ${diff}°\nhttps://angle-game.vercel.app`;
     try {
       await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
     } catch {
       const ta = document.createElement('textarea');
       ta.value = text;
@@ -97,20 +93,18 @@ export default function Home() {
       ta.select();
       document.execCommand('copy');
       document.body.removeChild(ta);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
     }
-  }, [angle, answerAngle, dayNumber, score]);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }, [guessAngle, targetAngle, dayNumber, score]);
 
-  const diff = answerAngle !== null ? getAngularDifference(angle, answerAngle) : 0;
+  const diff = getAngularDifference(guessAngle, targetAngle);
 
   if (!mounted) {
     return (
       <main style={{ maxWidth: 400, margin: '0 auto', padding: '48px 20px', fontFamily: 'Georgia, serif' }}>
         <div style={{ textAlign: 'center' }}>
-          <p className="small-caps" style={{ margin: '0 0 4px', color: '#888' }}>
-            Loading…
-          </p>
+          <p className="small-caps" style={{ margin: 0, color: '#888' }}>Loading…</p>
         </div>
       </main>
     );
@@ -148,7 +142,7 @@ export default function Home() {
       </button>
 
       {/* Header */}
-      <div style={{ textAlign: 'center', marginBottom: 28 }}>
+      <div style={{ textAlign: 'center', marginBottom: 20 }}>
         <p className="small-caps" style={{ margin: '0 0 6px', color: '#888' }}>
           No. {dayNumber}
         </p>
@@ -157,16 +151,21 @@ export default function Home() {
         </h1>
         <hr style={{ border: 'none', borderTop: '1px solid #e8e4de', margin: '0 40px 12px' }} />
         <p className="small-caps" style={{ margin: 0, color: '#999' }}>
-          Set the line to match the hidden angle
+          How many degrees is this angle?
         </p>
       </div>
 
-      {/* Protractor */}
+      {/* Target angle visual — the "swatch" */}
+      <div style={{ marginBottom: 8 }}>
+        <AngleDisplay angle={targetAngle} />
+      </div>
+
+      {/* Protractor for guessing */}
       <div style={{ marginBottom: 16 }}>
         <Protractor
-          angle={angle}
+          angle={guessAngle}
           submitted={submitted}
-          answerAngle={answerAngle ?? undefined}
+          answerAngle={submitted ? targetAngle : undefined}
           onAngleChange={handleAngleChange}
         />
       </div>
@@ -175,7 +174,7 @@ export default function Home() {
       {!submitted && (
         <div style={{ textAlign: 'center', marginBottom: 16 }}>
           <span style={{ fontSize: 36, fontWeight: 'normal' }}>
-            {hasInteracted ? `${angle}°` : '—'}
+            {hasInteracted ? `${guessAngle}°` : '—'}
           </span>
         </div>
       )}
@@ -220,12 +219,12 @@ export default function Home() {
               }}
             >
               <div style={{ flex: 1, textAlign: 'center' }}>
-                <div style={{ fontSize: 24 }}>{angle}°</div>
+                <div style={{ fontSize: 24 }}>{guessAngle}°</div>
                 <p className="small-caps" style={{ margin: '4px 0 0', color: '#888' }}>Your Guess</p>
               </div>
               <div style={{ width: 1, background: '#e8e4de' }} />
               <div style={{ flex: 1, textAlign: 'center' }}>
-                <div style={{ fontSize: 24, color: '#3ca064' }}>{answerAngle}°</div>
+                <div style={{ fontSize: 24, color: '#3ca064' }}>{targetAngle}°</div>
                 <p className="small-caps" style={{ margin: '4px 0 0', color: '#888' }}>Answer</p>
               </div>
               <div style={{ width: 1, background: '#e8e4de' }} />
