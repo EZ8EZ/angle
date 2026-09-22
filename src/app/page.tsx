@@ -1,368 +1,123 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import AngleDisplay from '@/components/AngleDisplay';
-import Protractor from '@/components/Protractor';
-import RoundHistory from '@/components/RoundHistory';
-import StatsModal from '@/components/StatsModal';
-import {
-  getDayNumber,
-  getNumRounds,
-  getRoundAngle,
-  getRoundRotation,
-  computeScore,
-  getAngularDifference,
-  loadGameState,
-  saveGameState,
-  loadStats,
-  recordDayScore,
-  formatDate,
-  type GameState,
-  type Stats,
-  emptyGameState,
-} from '@/lib/game';
+import { useEffect, useMemo, useState } from 'react';
+import QuoteRow from '@/components/QuoteRow';
+import WeightSlider from '@/components/WeightSlider';
+import { scoreQuotes } from '@/lib/score';
+import { loadWeight, saveWeight } from '@/lib/storage';
+import type { Quote } from '@/lib/types';
 
-const FLASH_DURATION = 3500;
+const DEFAULT_QUOTES: Quote[] = [
+  { id: 'uber', name: 'Uber', color: '#111111', isCustom: false, price: '', eta: '' },
+  { id: 'lyft', name: 'Lyft', color: '#EA0B8C', isCustom: false, price: '', eta: '' },
+  { id: 'waymo', name: 'Waymo', color: '#0A9B8F', isCustom: false, price: '', eta: '' },
+];
+
+const CUSTOM_COLORS = ['#6366F1', '#F59E0B', '#EF4444', '#0891B2', '#8B5CF6'];
+
+function emptyCustomQuote(index: number): Quote {
+  return {
+    id: `custom-${Date.now()}-${index}`,
+    name: '',
+    color: CUSTOM_COLORS[index % CUSTOM_COLORS.length],
+    isCustom: true,
+    price: '',
+    eta: '',
+  };
+}
 
 export default function Home() {
-  const [game, setGame] = useState<GameState>(emptyGameState());
-  const [guessAngle, setGuessAngle] = useState(0);
-  const [hasInteracted, setHasInteracted] = useState(false);
-  const [mounted, setMounted] = useState(false);
+  const [quotes, setQuotes] = useState<Quote[]>(DEFAULT_QUOTES);
+  const [weight, setWeight] = useState(0.5);
+  const [customCount, setCustomCount] = useState(0);
+  const [hydrated, setHydrated] = useState(false);
 
-  // Per-round reveal state
-  const [roundRevealed, setRoundRevealed] = useState(false);
-  const [displayRoundScore, setDisplayRoundScore] = useState(0);
-
-  // Flash timer
-  const [angleVisible, setAngleVisible] = useState(true);
-  const [timeLeft, setTimeLeft] = useState(FLASH_DURATION);
-
-  // Final results
-  const [displayTotalScore, setDisplayTotalScore] = useState(0);
-
-  // Stats
-  const [statsOpen, setStatsOpen] = useState(false);
-  const [stats, setStats] = useState<Stats>({
-    gamesPlayed: 0, streak: 0, lastDay: 0, bestScore: 0, totalScore: 0, scores: [],
-  });
-  const [copied, setCopied] = useState(false);
-
-  const dayNumber = getDayNumber();
-  const numRounds = getNumRounds();
-  const animRef = useRef<number>(0);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const currentRound = game.currentRound;
-  const isComplete = game.complete;
-  const targetAngle = !isComplete ? getRoundAngle(currentRound) : 0;
-  const rotation = !isComplete ? getRoundRotation(currentRound) : 0;
-
-  // Load saved state on mount
   useEffect(() => {
-    setMounted(true);
-    const saved = loadGameState();
-    setGame(saved);
-    setStats(loadStats());
-
-    if (saved.complete) {
-      const total = saved.rounds.reduce((s, r) => s + r.score, 0);
-      setDisplayTotalScore(total);
-    }
+    setWeight(loadWeight());
+    setHydrated(true);
   }, []);
 
-  // Flash timer — reset on each new round
   useEffect(() => {
-    if (!mounted || isComplete || roundRevealed) return;
+    if (hydrated) saveWeight(weight);
+  }, [weight, hydrated]);
 
-    setAngleVisible(true);
-    setTimeLeft(FLASH_DURATION);
+  const scored = useMemo(() => scoreQuotes(quotes, weight), [quotes, weight]);
 
-    const startTime = Date.now();
-    timerRef.current = setInterval(() => {
-      const remaining = Math.max(0, FLASH_DURATION - (Date.now() - startTime));
-      setTimeLeft(remaining);
-      if (remaining <= 0) {
-        setAngleVisible(false);
-        if (timerRef.current) clearInterval(timerRef.current);
+  const bestId = useMemo(() => {
+    let best: { id: string; score: number } | null = null;
+    for (const q of scored) {
+      if (q.score !== null && (best === null || q.score > best.score)) {
+        best = { id: q.id, score: q.score };
       }
-    }, 50);
-
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
-  }, [mounted, currentRound, isComplete, roundRevealed]);
-
-  const handleAngleChange = useCallback((a: number) => {
-    setGuessAngle(a);
-    if (!hasInteracted) setHasInteracted(true);
-  }, [hasInteracted]);
-
-  // Submit a single round
-  const handleSubmit = useCallback(() => {
-    if (roundRevealed || isComplete) return;
-    const answer = getRoundAngle(currentRound);
-    const rot = getRoundRotation(currentRound);
-    const score = computeScore(guessAngle, answer);
-
-    setRoundRevealed(true);
-    setAngleVisible(true); // show angle again
-
-    // Animate round score
-    const start = performance.now();
-    const animate = (now: number) => {
-      const p = Math.min((now - start) / 400, 1);
-      setDisplayRoundScore(Math.round(score * p));
-      if (p < 1) animRef.current = requestAnimationFrame(animate);
-    };
-    animRef.current = requestAnimationFrame(animate);
-
-    // Save round result
-    const newRounds = [...game.rounds, { guess: guessAngle, answer, rotation: rot, score }];
-    const nextRound = currentRound + 1;
-    const complete = nextRound >= numRounds;
-
-    const newGame: GameState = {
-      dayNumber,
-      currentRound: nextRound,
-      rounds: newRounds,
-      complete,
-    };
-    setGame(newGame);
-    saveGameState(newGame);
-
-    if (complete) {
-      const total = newRounds.reduce((s, r) => s + r.score, 0);
-      const newStats = recordDayScore(total);
-      setStats(newStats);
-
-      // Animate total after a short delay
-      setTimeout(() => {
-        const s2 = performance.now();
-        const animTotal = (now: number) => {
-          const p = Math.min((now - s2) / 600, 1);
-          setDisplayTotalScore(Math.round(total * p));
-          if (p < 1) requestAnimationFrame(animTotal);
-        };
-        requestAnimationFrame(animTotal);
-      }, 500);
     }
-  }, [guessAngle, currentRound, game, roundRevealed, isComplete, dayNumber, numRounds]);
+    return best?.id ?? null;
+  }, [scored]);
 
-  // Advance to next round
-  const handleNextRound = useCallback(() => {
-    setRoundRevealed(false);
-    setGuessAngle(0);
-    setHasInteracted(false);
-    setDisplayRoundScore(0);
-  }, []);
+  const filledCount = scored.filter((q) => q.score !== null).length;
 
-  const handleShare = useCallback(async () => {
-    const total = game.rounds.reduce((s, r) => s + r.score, 0);
-    const lines = game.rounds.map((r, i) => {
-      const diff = getAngularDifference(r.guess, r.answer);
-      return `R${i + 1}: ${r.score}/100 (off by ${diff}°)`;
-    });
-    const text = `ANGLE No. ${dayNumber} — ${formatDate()}\n${total}/${numRounds * 100}\n${lines.join('\n')}\nhttps://angle-game.vercel.app`;
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      const ta = document.createElement('textarea');
-      ta.value = text;
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand('copy');
-      document.body.removeChild(ta);
-    }
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }, [game.rounds, dayNumber, numRounds]);
+  function updateQuote(id: string, field: 'name' | 'price' | 'eta', value: string) {
+    setQuotes((prev) => prev.map((q) => (q.id === id ? { ...q, [field]: value } : q)));
+  }
 
-  const timerSeconds = Math.ceil(timeLeft / 1000);
+  function removeQuote(id: string) {
+    setQuotes((prev) => prev.filter((q) => q.id !== id));
+  }
 
-  if (!mounted) {
-    return (
-      <main style={{ maxWidth: 400, margin: '0 auto', padding: '48px 20px', fontFamily: 'Georgia, serif' }}>
-        <div style={{ textAlign: 'center' }}>
-          <p className="small-caps" style={{ margin: 0, color: '#888' }}>Loading…</p>
-        </div>
-      </main>
-    );
+  function addCustomQuote() {
+    setQuotes((prev) => [...prev, emptyCustomQuote(customCount)]);
+    setCustomCount((c) => c + 1);
+  }
+
+  function resetAll() {
+    setQuotes(DEFAULT_QUOTES);
   }
 
   return (
-    <main style={{ maxWidth: 400, margin: '0 auto', padding: '48px 20px 64px', fontFamily: 'Georgia, serif' }}>
-      {/* Stats icon */}
-      <button
-        onClick={() => setStatsOpen(true)}
-        aria-label="Statistics"
-        style={{
-          position: 'fixed', top: 16, right: 16, background: 'none',
-          border: 'none', cursor: 'pointer', padding: 6, zIndex: 40,
-        }}
-      >
-        <svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="#1a1a1a" strokeWidth="1.5" strokeLinecap="round">
-          <rect x="2" y="12" width="4" height="8" rx="0.5" />
-          <rect x="9" y="6" width="4" height="14" rx="0.5" />
-          <rect x="16" y="2" width="4" height="18" rx="0.5" />
-        </svg>
-      </button>
+    <main className="mx-auto min-h-screen max-w-md px-4 pb-16 pt-8">
+      <header className="mb-6 flex items-baseline justify-between">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-neutral-900">RideTab</h1>
+          <p className="text-sm text-neutral-500">Enter each quote, get the best value.</p>
+        </div>
+        <button
+          onClick={resetAll}
+          className="text-xs font-medium text-neutral-400 hover:text-neutral-600"
+        >
+          Reset
+        </button>
+      </header>
 
-      {/* Header */}
-      <div style={{ textAlign: 'center', marginBottom: 20 }}>
-        <p className="small-caps" style={{ margin: '0 0 6px', color: '#888' }}>
-          No. {dayNumber}
-        </p>
-        <h1 style={{ fontSize: 42, fontWeight: 'normal', margin: '0 0 12px', letterSpacing: '0.04em' }}>
-          Angle
-        </h1>
-        <hr style={{ border: 'none', borderTop: '1px solid #e8e4de', margin: '0 40px 12px' }} />
+      <WeightSlider weight={weight} onChange={setWeight} />
 
-        {!isComplete && (
-          <p className="small-caps" style={{ margin: 0, color: '#999' }}>
-            Round {currentRound + 1} of {numRounds} — How many degrees?
-          </p>
-        )}
+      <div className="mt-4 space-y-3">
+        {scored.map((q) => (
+          <QuoteRow
+            key={q.id}
+            quote={q}
+            rank={q.id === bestId ? 0 : null}
+            onChange={(field, value) => updateQuote(q.id, field, value)}
+            onRemove={() => removeQuote(q.id)}
+          />
+        ))}
       </div>
 
-      {/* ==================== ACTIVE ROUND ==================== */}
-      {!isComplete && !roundRevealed && (
-        <>
-          {/* Target angle visual with flash */}
-          <div style={{ marginBottom: 8, position: 'relative' }}>
-            <AngleDisplay angle={targetAngle} rotation={rotation} visible={angleVisible} />
-            <div style={{ textAlign: 'center', marginTop: 4 }}>
-              {timeLeft > 0 ? (
-                <span className="small-caps" style={{ color: '#bbb' }}>{timerSeconds}s</span>
-              ) : (
-                <span className="small-caps" style={{ color: '#bbb' }}>From memory</span>
-              )}
-            </div>
-          </div>
+      <button
+        onClick={addCustomQuote}
+        className="mt-3 w-full rounded-2xl border border-dashed border-neutral-300 py-3 text-sm font-medium text-neutral-500 hover:border-neutral-400 hover:text-neutral-700"
+      >
+        + Add another service
+      </button>
 
-          {/* Protractor */}
-          <div style={{ marginBottom: 16 }}>
-            <Protractor
-              angle={guessAngle}
-              submitted={false}
-              onAngleChange={handleAngleChange}
-            />
-          </div>
-
-          {/* Live readout */}
-          <div style={{ textAlign: 'center', marginBottom: 16 }}>
-            <span style={{ fontSize: 36, fontWeight: 'normal' }}>
-              {hasInteracted ? `${guessAngle}°` : '—'}
-            </span>
-          </div>
-
-          {/* Submit */}
-          <button className="submit-btn" onClick={handleSubmit} disabled={!hasInteracted}>
-            Submit
-          </button>
-        </>
+      {filledCount < 2 && (
+        <p className="mt-6 text-center text-xs text-neutral-400">
+          Enter price &amp; ETA for at least two services to see a score.
+        </p>
       )}
 
-      {/* ==================== ROUND RESULT (between rounds) ==================== */}
-      {!isComplete && roundRevealed && (
-        <AnimatePresence>
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.35 }}
-          >
-            {/* Show both angles on protractor */}
-            <div style={{ marginBottom: 8 }}>
-              <AngleDisplay angle={targetAngle} rotation={rotation} visible={true} />
-            </div>
-            <div style={{ marginBottom: 16 }}>
-              <Protractor
-                angle={guessAngle}
-                submitted={true}
-                answerAngle={game.rounds[game.rounds.length - 1]?.answer}
-                onAngleChange={() => {}}
-              />
-            </div>
-
-            {/* Round score */}
-            <div style={{ textAlign: 'center', marginBottom: 16 }}>
-              <div style={{ fontSize: 48, lineHeight: 1 }}>{displayRoundScore}</div>
-              <p className="small-caps" style={{ margin: '4px 0 0', color: '#888' }}>
-                Round {game.rounds.length} of {numRounds}
-              </p>
-            </div>
-
-            {/* Breakdown */}
-            <div
-              style={{
-                display: 'flex',
-                borderTop: '1px solid #e8e4de',
-                borderBottom: '1px solid #e8e4de',
-                padding: '14px 0',
-                marginBottom: 16,
-              }}
-            >
-              <div style={{ flex: 1, textAlign: 'center' }}>
-                <div style={{ fontSize: 22 }}>{guessAngle}°</div>
-                <p className="small-caps" style={{ margin: '4px 0 0', color: '#888' }}>Guess</p>
-              </div>
-              <div style={{ width: 1, background: '#e8e4de' }} />
-              <div style={{ flex: 1, textAlign: 'center' }}>
-                <div style={{ fontSize: 22, color: '#3ca064' }}>{game.rounds[game.rounds.length - 1]?.answer}°</div>
-                <p className="small-caps" style={{ margin: '4px 0 0', color: '#888' }}>Answer</p>
-              </div>
-              <div style={{ width: 1, background: '#e8e4de' }} />
-              <div style={{ flex: 1, textAlign: 'center' }}>
-                <div style={{ fontSize: 22 }}>
-                  {getAngularDifference(guessAngle, game.rounds[game.rounds.length - 1]?.answer ?? 0)}°
-                </div>
-                <p className="small-caps" style={{ margin: '4px 0 0', color: '#888' }}>Off By</p>
-              </div>
-            </div>
-
-            <button className="submit-btn" onClick={handleNextRound}>
-              Next Round
-            </button>
-          </motion.div>
-        </AnimatePresence>
-      )}
-
-      {/* ==================== FINAL RESULTS ==================== */}
-      {isComplete && (
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4 }}
-        >
-          {/* Total score */}
-          <div style={{ textAlign: 'center', marginBottom: 24 }}>
-            <div style={{ fontSize: 72, fontWeight: 'normal', lineHeight: 1 }}>
-              {displayTotalScore}
-              <span style={{ fontSize: 28, color: '#bbb' }}> /{numRounds * 100}</span>
-            </div>
-            <p className="small-caps" style={{ margin: '8px 0 0', color: '#888' }}>
-              Today&apos;s Score
-            </p>
-          </div>
-
-          {/* Share */}
-          <button className="submit-btn" onClick={handleShare} style={{ borderRadius: 12 }}>
-            {copied ? 'Copied!' : 'Share Results'}
-          </button>
-
-          {/* Round history */}
-          <div style={{ marginTop: 28 }}>
-            <p className="small-caps" style={{ textAlign: 'center', color: '#bbb', marginBottom: 12 }}>
-              Round History
-            </p>
-            <RoundHistory rounds={game.rounds} />
-          </div>
-        </motion.div>
-      )}
-
-      {/* Stats modal */}
-      <StatsModal open={statsOpen} onClose={() => setStatsOpen(false)} stats={stats} />
+      <p className="mt-10 text-center text-[11px] leading-relaxed text-neutral-300">
+        Score compares only the quotes you&apos;ve entered — it&apos;s not pulled live from any app.
+        Check each app for the actual quote before you book.
+      </p>
     </main>
   );
 }
