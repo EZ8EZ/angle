@@ -1,36 +1,40 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# RideTab
 
-## Getting Started
+A minimalist mobile web app for comparing ride-hailing quotes side by side.
 
-First, run the development server:
+Uber, Lyft, Waymo, and any robotaxi/taxi service don't expose public APIs for
+pulling live prices into a third-party app — so RideTab doesn't try to fake
+that. Instead: open each app for a few seconds like you already do, type the
+price and ETA it shows into RideTab, and it instantly scores every option on
+a blended price/time value score you control with a slider. The best value
+is highlighted.
+
+## Features (v1)
+
+- Uber, Lyft, Waymo quote rows out of the box, plus "+ Add another service"
+  for anything else (a local robotaxi pilot, a taxi app, whatever you have).
+- A single Cheaper ↔ Faster slider blends normalized price and ETA into one
+  0–100 score per option; the top score is marked "Best value".
+- Your price/time weighting is remembered locally between visits.
+- No account, no backend, no data leaves your phone — everything runs
+  client-side and state lives in `localStorage`.
+- Installable as a home-screen app (PWA manifest) on iOS and Android.
+
+## Not in v1 (by design)
+
+- No live/automatic price pulling — see above for why.
+- No credit-card rewards weighting — noted as a possible v2 addition.
+
+## Getting started
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000). On a phone, open the
+deployed URL in Safari/Chrome and use "Add to Home Screen" to install it.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Stack
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Next.js (App Router) + TypeScript + Tailwind CSS. No backend, no database.
